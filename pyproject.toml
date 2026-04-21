@@ -1,0 +1,59 @@
+[project]
+name = "nexustoken-sdk"
+version = "0.4.1"
+description = "Python SDK + MCP server for NexusToken — a SaaS API for AI-powered structured data processing"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+readme = "README.md"
+authors = [
+    {name = "NexusToken Team", email = "hello@nexustoken.ai"},
+]
+keywords = [
+    "ai-agents", "mcp", "llm", "structured-output",
+    "claude", "cursor", "json-extraction", "saas-api",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "httpx>=0.27.0",
+    "pydantic>=2.0.0",
+]
+
+[project.urls]
+Homepage = "https://api.nexustoken.ai"
+Documentation = "https://api.nexustoken.ai/docs"
+Repository = "https://github.com/wangbo23-code/nexustoken-sdk"
+"LLM Docs" = "https://api.nexustoken.ai/llms-full.txt"
+"MCP Integration" = "https://api.nexustoken.ai/llms-full.txt#mcp-server-setup-claude-desktop--cursor"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+]
+mcp = [
+    "mcp>=0.1.0",
+]
+
+[project.scripts]
+nexus     = "nexus_sdk.cli:main"
+# `nexus-mcp` launches the Model Context Protocol server so any MCP-compatible
+# tool (Claude Code, Claude Desktop, Cursor, OpenCode, Codex) can speak to
+# NexusToken. Requires the [mcp] optional dependency group.
+nexus-mcp = "nexus_sdk.mcp_server:cli_main"
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["nexus_sdk*"]

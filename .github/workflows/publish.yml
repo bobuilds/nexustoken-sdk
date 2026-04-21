@@ -1,0 +1,70 @@
+name: Publish to PyPI
+
+# NOTE (2026-04-21): This workflow is currently NON-FUNCTIONAL because the
+# maintainer's GitHub account (wangbo23-code) is not discoverable via GitHub's
+# public user API, which blocks PyPI's Trusted Publisher user-validation step.
+# Publishing is done locally via `twine upload dist/*` using an API token
+# stored in ~/.pypirc. This workflow is kept as a scaffold — when the GitHub
+# account visibility is restored, registering a Trusted Publisher record at
+# https://pypi.org/manage/project/nexustoken-sdk/settings/publishing/
+# is the only step needed to re-enable automated publishing.
+#
+# Triggers (when re-enabled):
+#   1. Pushing a git tag that starts with "v" (e.g. `git tag v0.4.1 && git push --tags`)
+#   2. Manual via the "Run workflow" button on the Actions tab
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build-and-publish:
+    name: Build + publish wheel to PyPI
+    runs-on: ubuntu-latest
+
+    # The `pypi` environment is (will be) registered as a Trusted Publisher for
+    # this project at https://pypi.org/manage/project/nexustoken-sdk/settings/publishing/
+    # Required matching fields: owner, repository, workflow filename, environment.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/nexustoken-sdk/
+
+    # `id-token: write` is required for PyPI's OIDC-based Trusted Publisher flow.
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+
+      - name: Verify tag matches pyproject version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "::error::Tag v$TAG does not match pyproject version $VERSION"
+            exit 1
+          fi
+          echo "Version $VERSION matches tag v$TAG — ok"
+
+      - name: Build sdist + wheel
+        run: python -m build
+
+      - name: Publish to PyPI (Trusted Publisher / OIDC)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # No `password:` field — gh-action-pypi-publish auto-mints a short-lived
+        # token from the GitHub Actions OIDC identity and PyPI's Trusted
+        # Publisher record for this repo.
