@@ -1,13 +1,12 @@
 name: Publish to PyPI
 
-# NOTE (2026-04-21): This workflow is currently NON-FUNCTIONAL because the
-# maintainer's GitHub account (wangbo23-code) is not discoverable via GitHub's
-# public user API, which blocks PyPI's Trusted Publisher user-validation step.
-# Publishing is done locally via `twine upload dist/*` using an API token
-# stored in ~/.pypirc. This workflow is kept as a scaffold — when the GitHub
-# account visibility is restored, registering a Trusted Publisher record at
+# NOTE (2026-04-22 updated): Canonical repo migrated from wangbo23-code to
+# bobuilds (wangbo23-code was shadow-banned on GitHub; see CHANGELOG 0.6.1).
+# bobuilds is publicly visible, so PyPI Trusted Publisher can be activated by
+# registering this workflow at
 # https://pypi.org/manage/project/nexustoken-sdk/settings/publishing/
-# is the only step needed to re-enable automated publishing.
+# Until Trusted Publisher is configured, publishing is done locally via
+# `twine upload dist/*` using an API token stored in ~/.pypirc.
 #
 # Triggers (when re-enabled):
 #   1. Pushing a git tag that starts with "v" (e.g. `git tag v0.4.1 && git push --tags`)

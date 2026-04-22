@@ -49,7 +49,7 @@ try:
         _MCP_LEGACY_API = True
         _stdio_ctx = None  # type: ignore
 except ImportError:
-    print("ERROR: pip install 'nexus-trade-sdk[mcp]'", file=sys.stderr)
+    print("ERROR: pip install 'nexustoken-sdk[mcp]'", file=sys.stderr)
     sys.exit(1)
 
 logging.basicConfig(level=logging.INFO)
@@ -927,7 +927,7 @@ def _print_tty_setup_success() -> None:
 [nexus-mcp] so it expects to be launched BY an AI tool (not by you directly).
 [nexus-mcp]
 [nexus-mcp] Next step: plug `nexus-mcp` into your AI tool of choice.
-[nexus-mcp]   Claude Code:    claude mcp add nexus -- uvx --from 'nexus-trade-sdk[mcp]' nexus-mcp
+[nexus-mcp]   Claude Code:    claude mcp add nexus -- uvx --from 'nexustoken-sdk[mcp]' nexus-mcp
 [nexus-mcp]   Cursor / Desktop: see per-tool configs at https://nexustoken.ai/#connect
 [nexus-mcp]
 [nexus-mcp] The saved credentials will be picked up automatically — no extra
@@ -966,7 +966,7 @@ async def main():
 def cli_main() -> None:
     """Console-script entry point used by the pip-installed `nexus-mcp` command.
 
-    After ``pip install 'nexus-trade-sdk[mcp]'`` users get a ``nexus-mcp``
+    After ``pip install 'nexustoken-sdk[mcp]'`` users get a ``nexus-mcp``
     binary on their PATH. They can point any MCP-compatible AI tool
     (Claude Code, Claude Desktop, Cursor, OpenCode, Codex) at the command
     and set ``NEXUS_API_KEY`` / ``NEXUS_BASE_URL`` via env.

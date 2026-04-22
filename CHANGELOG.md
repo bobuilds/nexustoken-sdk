@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.6.1 — 2026-04-22
+
+**Canonical repo migration — wangbo23-code → bobuilds.**
+
+### Changed
+
+- `[project.urls] Repository` in `pyproject.toml` now points to
+  `https://github.com/bobuilds/nexustoken-sdk` (was `wangbo23-code`).
+  The `wangbo23-code` GitHub account is shadow-banned — anonymous visitors
+  and the GitHub public API both return 404 for it, which broke the PyPI
+  project Homepage link, the MCP tool installation hint, and any link
+  shared publicly. `bobuilds` is visible and will be the canonical repo
+  going forward.
+- Legacy `nexus-trade-sdk[mcp]` strings in `nexus_sdk/mcp_server.py` error
+  message and startup banner replaced with `nexustoken-sdk[mcp]` so the
+  fallback error / `claude mcp add` hint match the canonical PyPI name.
+- `AGENTS.md` install command updated to `pip install nexustoken-sdk`
+  (was legacy `nexus-trade-sdk`).
+- `.github/workflows/publish.yml` header comment updated to reflect the
+  migration and the now-unblocked path to PyPI Trusted Publisher
+  activation for the bobuilds repo.
+
+### Unchanged
+
+- Python import surface.
+- Wire protocol, REST API, MCP tool schema.
+- All runtime behavior — this is a metadata / docs release only.
+
 ## 0.6.0 — 2026-04-22
 
 **Day 2 expansion pack — Public Artifacts marketplace + physical-world task_type.**

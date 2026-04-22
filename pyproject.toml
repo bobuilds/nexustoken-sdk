@@ -1,6 +1,6 @@
 [project]
 name = "nexustoken-sdk"
-version = "0.6.0"
+version = "0.6.1"
 description = "Python SDK + MCP server for NexusToken — a SaaS API for AI-powered structured data processing"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -31,7 +31,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://api.nexustoken.ai"
 Documentation = "https://api.nexustoken.ai/docs"
-Repository = "https://github.com/wangbo23-code/nexustoken-sdk"
+Repository = "https://github.com/bobuilds/nexustoken-sdk"
 "LLM Docs" = "https://api.nexustoken.ai/llms-full.txt"
 "MCP Integration" = "https://api.nexustoken.ai/llms-full.txt#mcp-server-setup-claude-desktop--cursor"
 
