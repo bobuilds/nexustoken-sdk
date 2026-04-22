@@ -58,7 +58,7 @@ logger = logging.getLogger("nexus-mcp")
 # Config from env (resolved lazily in main() so bootstrap can populate it)
 BASE_URL = os.getenv("NEXUS_BASE_URL", "https://api.nexustoken.ai").rstrip("/")
 API_KEY = os.getenv("NEXUS_API_KEY", "")
-MCP_VERSION = "0.4.1"
+MCP_VERSION = "0.6.0"
 
 server = Server("nexus-task-network")
 # Build the HTTP client lazily — after _bootstrap_credentials() has a chance
@@ -272,6 +272,243 @@ TOOLS = [
             "required": ["task_id", "result_data"],
         },
     ),
+
+    # ─── V2: Open Capability Marketplace ────────────────────────
+    # These tools operate on the V2 marketplace: specs (provider
+    # contracts) + jobs (direct-assignment executions). They replace the
+    # auction-based V1 flow for workloads that need multimodal I/O,
+    # non-deterministic validation, or just cleaner contracts.
+    Tool(
+        name="nexus_discover_capabilities",
+        description=(
+            "Browse the NexusToken Open Capability Marketplace — a live index of "
+            "agent-to-agent contracts that any AI can invoke. Use this BEFORE "
+            "nexus_create_job to find a capability whose input/output shape "
+            "matches what you need. Filters compose with AND semantics. "
+            "Returns a list of {id, name, category, input_mode, output_mode, "
+            "price_nc, validation_mode, tags, description} dicts — pass the "
+            "`id` as `capability_spec_id` to create_job."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "enum": ["data", "text", "code", "web", "multimodal"],
+                    "description": "High-level capability bucket.",
+                },
+                "input_mode": {
+                    "type": "string",
+                    "enum": ["text", "json", "file", "url"],
+                    "description": "Filter by the shape of input the capability accepts.",
+                },
+                "output_mode": {
+                    "type": "string",
+                    "enum": ["text", "json", "file", "bundle"],
+                    "description": "Filter by the shape of output the capability produces.",
+                },
+                "max_price": {
+                    "type": "integer",
+                    "description": "Cap on price_nc — cheap-first browse.",
+                },
+                "tag": {
+                    "type": "string",
+                    "description": "Require one of the provider's tags to match (exact).",
+                },
+                "page": {"type": "integer", "default": 1, "minimum": 1},
+                "per_page": {"type": "integer", "default": 20, "minimum": 1, "maximum": 100},
+            },
+        },
+    ),
+    Tool(
+        name="nexus_create_job",
+        description=(
+            "Dispatch a V2 Job to a specific CapabilitySpec on the marketplace. "
+            "You must first have a capability_spec_id (from nexus_discover_capabilities). "
+            "Pack your inputs as a typed Envelope — a list of items where each is one "
+            "of {text, json, file, url}. For file inputs, upload via the /api/v1/files/upload "
+            "endpoint first (outside MCP) and reference the file_id here. "
+            "Budget ceiling must be >= spec.price_nc; any excess is refunded on settlement. "
+            "After creation, poll with nexus_check_job; depending on the spec's "
+            "validation_mode the job settles inline (deterministic / evaluator_llm) or "
+            "parks in HELD pending async resolution (evaluator_jury / acceptance / reputation)."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "capability_spec_id": {
+                    "type": "string",
+                    "description": "UUID of the target CapabilitySpec (from discover).",
+                },
+                "input_envelope": {
+                    "type": "object",
+                    "description": (
+                        "Payload envelope. Must contain an `items` list (1-100). "
+                        "Each item has a `type` and the matching payload key: "
+                        '{"type":"text","text":"..."} or {"type":"json","json":{...}} '
+                        'or {"type":"file","file_id":"<uuid>"} or {"type":"url","url":"..."}'
+                    ),
+                },
+                "budget_ceiling_nc": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Max NC you will spend. Must be >= spec.price_nc.",
+                },
+                "claim_window_hours": {
+                    "type": "integer",
+                    "default": 24,
+                    "minimum": 1,
+                    "maximum": 168,
+                    "description": "How long to wait for the provider to claim (else EXPIRED + refund).",
+                },
+            },
+            "required": ["capability_spec_id", "input_envelope", "budget_ceiling_nc"],
+        },
+    ),
+    Tool(
+        name="nexus_check_job",
+        description=(
+            "Fetch current state of a V2 Job by id. Useful for polling after "
+            "nexus_create_job. Returns status + output_envelope (if available) + "
+            "deadlines + error_code. Common status values: "
+            "QUEUED (awaiting claim), RUNNING (provider working), "
+            "HELD (output submitted, awaiting async resolution), "
+            "COMPLETED (settled — success), FAILED (refunded — validation / jury / "
+            "reject), CANCELLED (you cancelled), EXPIRED (no claim in window)."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string", "description": "Job UUID."},
+            },
+            "required": ["job_id"],
+        },
+    ),
+    Tool(
+        name="nexus_accept_job",
+        description=(
+            "Approve a HELD job (acceptance mode — or reputation mode, to short-circuit "
+            "the dispute window). Releases funds to the provider and transitions the "
+            "job to COMPLETED. Only the caller may accept."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+            },
+            "required": ["job_id"],
+        },
+    ),
+    Tool(
+        name="nexus_reject_job",
+        description=(
+            "Reject a HELD acceptance-mode job. Caller gets a full refund and the "
+            "job transitions to FAILED. Not valid for reputation mode — use "
+            "nexus_dispute_job instead."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+                "reason": {"type": "string", "default": ""},
+            },
+            "required": ["job_id"],
+        },
+    ),
+    Tool(
+        name="nexus_dispute_job",
+        description=(
+            "Escalate a HELD reputation-mode job to an AI arbiter. If the arbiter "
+            "sides with you, the provider gets nothing and you get a full refund. "
+            "If the arbiter sides with the provider, the job settles normally. "
+            "Reason must be at least 10 characters."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+                "reason": {"type": "string", "minLength": 10},
+            },
+            "required": ["job_id", "reason"],
+        },
+    ),
+    Tool(
+        name="nexus_claim_job",
+        description=(
+            "Provider tool: pick up a QUEUED job on a spec you own. Transitions "
+            "the job to RUNNING and starts the execution window (2h by default). "
+            "For MVP, only the spec's owner account may claim. After claiming, "
+            "execute the work and submit with nexus_submit_job."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+            },
+            "required": ["job_id"],
+        },
+    ),
+    Tool(
+        name="nexus_submit_job",
+        description=(
+            "Provider tool: return the output envelope for a RUNNING job you own. "
+            "Envelope shape mirrors input: a list of items of types text/json/file/url "
+            "consistent with the spec's output_mode. Under deterministic / "
+            "evaluator_llm modes the job settles inline; under the async modes it "
+            "moves to HELD awaiting caller/jury/timeout resolution."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "job_id": {"type": "string"},
+                "output_envelope": {
+                    "type": "object",
+                    "description": "Same shape as input_envelope — a dict with an `items` list.",
+                },
+            },
+            "required": ["job_id", "output_envelope"],
+        },
+    ),
+    Tool(
+        name="nexus_register_spec",
+        description=(
+            "Provider tool: publish a new CapabilitySpec to the marketplace so "
+            "callers can dispatch jobs to you. Only the 5 core fields are "
+            "required; tags + schemas + validation_mode default sensibly. To "
+            "migrate an existing V1 capability, use nexus_backfill_specs instead."
+        ),
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "maxLength": 100},
+                "category": {"type": "string", "enum": ["data", "text", "code", "web", "multimodal"]},
+                "input_mode": {"type": "string", "enum": ["text", "json", "file", "url"]},
+                "output_mode": {"type": "string", "enum": ["text", "json", "file", "bundle"]},
+                "price_nc": {"type": "integer", "minimum": 1},
+                "description": {"type": "string", "maxLength": 1000},
+                "input_schema": {"type": "object"},
+                "output_schema": {"type": "object"},
+                "file_types": {"type": "array", "items": {"type": "string"}},
+                "validation_mode": {
+                    "type": "string",
+                    "enum": ["deterministic", "evaluator_llm", "evaluator_jury", "acceptance", "reputation"],
+                    "default": "deterministic",
+                },
+                "tags": {"type": "array", "items": {"type": "string"}},
+                "version": {"type": "string", "default": "1.0"},
+            },
+            "required": ["name", "category", "input_mode", "output_mode", "price_nc"],
+        },
+    ),
+    Tool(
+        name="nexus_backfill_specs",
+        description=(
+            "Provider tool: one-click auto-generate a V2 CapabilitySpec for every "
+            "V1 capability you already have. Idempotent. Returns the count of "
+            "newly-created specs and their serialized form."
+        ),
+        inputSchema={"type": "object", "properties": {}},
+    ),
 ]
 
 
@@ -285,6 +522,7 @@ async def list_tools():
 @server.call_tool()
 async def call_tool(name: str, arguments: dict):
     try:
+        # V1 tools (auction-based JSON extraction)
         if name == "nexus_create_task":
             return await _handle_create_task(arguments)
         elif name == "nexus_check_status":
@@ -293,6 +531,27 @@ async def call_tool(name: str, arguments: dict):
             return await _handle_accept_work(arguments)
         elif name == "nexus_submit_result":
             return await _handle_submit_result(arguments)
+        # V2 tools (open capability marketplace)
+        elif name == "nexus_discover_capabilities":
+            return await _handle_discover_capabilities(arguments)
+        elif name == "nexus_create_job":
+            return await _handle_create_job(arguments)
+        elif name == "nexus_check_job":
+            return await _handle_check_job(arguments)
+        elif name == "nexus_accept_job":
+            return await _handle_accept_job(arguments)
+        elif name == "nexus_reject_job":
+            return await _handle_reject_job(arguments)
+        elif name == "nexus_dispute_job":
+            return await _handle_dispute_job(arguments)
+        elif name == "nexus_claim_job":
+            return await _handle_claim_job(arguments)
+        elif name == "nexus_submit_job":
+            return await _handle_submit_job(arguments)
+        elif name == "nexus_register_spec":
+            return await _handle_register_spec(arguments)
+        elif name == "nexus_backfill_specs":
+            return await _handle_backfill_specs(arguments)
         else:
             return [TextContent(type="text", text=f"Unknown tool: {name}")]
     except httpx.HTTPStatusError as e:
@@ -422,6 +681,148 @@ async def _handle_submit_result(args: dict):
             "message": msg,
         }, indent=2),
     )]
+
+
+# ─── V2 Tool handlers: Open Capability Marketplace ────────────────
+
+def _unwrap(resp: "httpx.Response") -> dict:
+    """V2 responses are envelope-wrapped ({data, meta}). Pull the data out
+    so MCP callers see the same shape they would on the REST API."""
+    resp.raise_for_status()
+    body = resp.json()
+    # Envelope-aware — support both envelope and bare dict for forward compat.
+    if isinstance(body, dict) and "data" in body:
+        return body["data"]
+    return body
+
+
+async def _handle_discover_capabilities(args: dict):
+    params = {
+        "page": args.get("page", 1),
+        "per_page": args.get("per_page", 20),
+    }
+    for key in ("category", "input_mode", "output_mode", "tag"):
+        if args.get(key):
+            params[key] = args[key]
+    if args.get("max_price") is not None:
+        params["max_price"] = args["max_price"]
+    resp = http.get("/api/v2/capability-specs", params=params)
+    data = _unwrap(resp)
+    # Trim to the fields a caller actually needs to decide — full spec
+    # detail is available via a follow-up GET if needed.
+    summary = [
+        {
+            "id": s["id"],
+            "name": s["name"],
+            "category": s["category"],
+            "input_mode": s["input_mode"],
+            "output_mode": s["output_mode"],
+            "price_nc": s["price_nc"],
+            "validation_mode": s["validation_mode"],
+            "description": s.get("description"),
+            "tags": s.get("tags", []),
+        }
+        for s in data
+    ]
+    return [TextContent(
+        type="text",
+        text=json.dumps({
+            "count": len(summary),
+            "capabilities": summary,
+            "hint": (
+                "Pick a capability_spec_id and pass it to nexus_create_job "
+                "with an input_envelope that matches input_mode."
+            ),
+        }, indent=2),
+    )]
+
+
+async def _handle_create_job(args: dict):
+    payload = {
+        "capability_spec_id": args["capability_spec_id"],
+        "input_envelope": args["input_envelope"],
+        "budget_ceiling_nc": args["budget_ceiling_nc"],
+    }
+    if args.get("claim_window_hours"):
+        payload["claim_window_hours"] = args["claim_window_hours"]
+    resp = http.post("/api/v2/jobs", json=payload)
+    data = _unwrap(resp)
+    return [TextContent(
+        type="text",
+        text=json.dumps({
+            "job_id": data["id"],
+            "status": data["status"],
+            "budget_ceiling_nc": data["budget_ceiling_nc"],
+            "validation_mode": data["validation_mode"],
+            "claim_deadline": data.get("claim_deadline"),
+            "message": (
+                f"Job created ({data['status']}). Validation mode: "
+                f"{data['validation_mode']}. "
+                "Use nexus_check_job to poll; terminal states are COMPLETED / "
+                "FAILED / CANCELLED / EXPIRED, and HELD means awaiting "
+                "caller / jury / timeout resolution."
+            ),
+        }, indent=2),
+    )]
+
+
+async def _handle_check_job(args: dict):
+    resp = http.get(f"/api/v2/jobs/{args['job_id']}")
+    data = _unwrap(resp)
+    return [TextContent(type="text", text=json.dumps(data, indent=2))]
+
+
+async def _handle_accept_job(args: dict):
+    resp = http.post(f"/api/v2/jobs/{args['job_id']}/accept")
+    data = _unwrap(resp)
+    return [TextContent(type="text", text=json.dumps(data, indent=2))]
+
+
+async def _handle_reject_job(args: dict):
+    resp = http.post(
+        f"/api/v2/jobs/{args['job_id']}/reject",
+        json={"reason": args.get("reason", "")},
+    )
+    data = _unwrap(resp)
+    return [TextContent(type="text", text=json.dumps(data, indent=2))]
+
+
+async def _handle_dispute_job(args: dict):
+    resp = http.post(
+        f"/api/v2/jobs/{args['job_id']}/dispute",
+        json={"reason": args["reason"]},
+    )
+    data = _unwrap(resp)
+    return [TextContent(type="text", text=json.dumps(data, indent=2))]
+
+
+async def _handle_claim_job(args: dict):
+    resp = http.post(f"/api/v2/jobs/{args['job_id']}/claim")
+    data = _unwrap(resp)
+    return [TextContent(type="text", text=json.dumps(data, indent=2))]
+
+
+async def _handle_submit_job(args: dict):
+    resp = http.post(
+        f"/api/v2/jobs/{args['job_id']}/submit",
+        json={"output_envelope": args["output_envelope"]},
+    )
+    data = _unwrap(resp)
+    return [TextContent(type="text", text=json.dumps(data, indent=2))]
+
+
+async def _handle_register_spec(args: dict):
+    # Pass through every supplied field — API layer validates.
+    payload = {k: v for k, v in args.items() if v is not None}
+    resp = http.post("/api/v2/capability-specs", json=payload)
+    data = _unwrap(resp)
+    return [TextContent(type="text", text=json.dumps(data, indent=2))]
+
+
+async def _handle_backfill_specs(_args: dict):
+    resp = http.post("/api/v2/capability-specs/backfill")
+    data = _unwrap(resp)
+    return [TextContent(type="text", text=json.dumps(data, indent=2))]
 
 
 # ─── Bootstrap (auto-resolve credentials on first run) ───────────

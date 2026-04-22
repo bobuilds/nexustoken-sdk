@@ -306,6 +306,7 @@ class NexusClient:
         quality: str = "balanced",
         min_skill: int = 0,
         callback_url: Optional[str] = None,
+        input_file_ids: Optional[List[str]] = None,
     ) -> TaskHandle:
         """
         Create a new task and return a TaskHandle for polling.
@@ -317,11 +318,14 @@ class NexusClient:
             budget: Maximum credits to spend (min 5)
             max_seconds: Maximum execution time (1-300)
             rules: Optional list of hard validation rules
-            task_type: Task type (V1: only "json_extraction")
+            task_type: Task type — json_extraction / text_classification /
+                       text_generation / data_transformation / code_execution
             quality: Matching strategy — "best", "balanced", or "cheapest"
             min_skill: Minimum skill tier to bid (0=any, 1-5)
             callback_url: Webhook URL — receives POST with result on SETTLED/EXPIRED/CANCELLED.
                           If set, no need to poll with wait_for_result().
+            input_file_ids: Optional list of file UUIDs (from upload_file())
+                            to attach as binary inputs. Up to 10 per task.
         """
         payload = {
             "task_type": task_type,
@@ -336,8 +340,92 @@ class NexusClient:
         }
         if callback_url:
             payload["callback_url"] = callback_url
+        if input_file_ids:
+            payload["input_file_ids"] = input_file_ids
         data = self._post("/api/v1/tasks", payload)
         return TaskHandle(self, data["id"], data)
+
+    def create_physical_proof_task(
+        self,
+        brief: str,
+        *,
+        budget: int = 100,
+        max_seconds: int = 1800,
+        quality: str = "balanced",
+        min_skill: int = 0,
+        callback_url: Optional[str] = None,
+        reference_file_ids: Optional[List[str]] = None,
+    ) -> TaskHandle:
+        """Create a physical-world task where the worker must submit photo/video
+        evidence of a real-world action.
+
+        ``brief`` describes the action (e.g. "Photograph the Eiffel Tower at
+        sunset, facing east"). The worker submits a result containing a
+        ``description`` and at least one ``{type: file_ref, file_id: ...}``
+        marker pointing to proof they uploaded. Quality ("did they actually
+        do it?") is enforced by the existing dispute flow, not schema match.
+
+        ``reference_file_ids`` optionally lets you attach a reference photo or
+        map — the worker can download them for context (same mechanism as
+        every other multimodal task).
+        """
+        payload: Dict[str, Any] = {
+            "task_type": "physical_proof",
+            "input_data": brief,
+            "max_budget_credits": budget,
+            "max_execution_seconds": max_seconds,
+            "quality_preference": quality,
+            "min_skill_rating": min_skill,
+        }
+        if callback_url:
+            payload["callback_url"] = callback_url
+        if reference_file_ids:
+            payload["input_file_ids"] = list(reference_file_ids)
+        data = self._post("/api/v1/tasks", payload)
+        return TaskHandle(self, data["id"], data)
+
+    # --- Files ---
+
+    def upload_file(
+        self,
+        path: str,
+        *,
+        content_type: Optional[str] = None,
+        filename: Optional[str] = None,
+    ) -> str:
+        """Upload a file and return its ``file_id`` for use in create_task().
+
+        Args:
+            path: Path to a local file.
+            content_type: Optional MIME type (auto-detected if omitted).
+            filename: Optional display name (defaults to the basename).
+
+        Returns: the uploaded file's UUID (``file_id``).
+        """
+        import mimetypes
+        import os
+
+        ctype = content_type or mimetypes.guess_type(path)[0] or "application/octet-stream"
+        name = filename or os.path.basename(path)
+        with open(path, "rb") as fh:
+            resp = self._http.post(
+                "/api/v1/files/upload",
+                files={"file": (name, fh, ctype)},
+            )
+        raise_for_status(resp)
+        return resp.json()["file_id"]
+
+    def download_task_file(self, task_id: str, file_id: str) -> bytes:
+        """Download a task-attached file's bytes.
+
+        Works for any file the current account can see in the task scope —
+        input attachments (if you're the creator or the awarded worker) or
+        output artifacts (referenced via {type: 'file_ref', ...} markers in
+        submissions on this task).
+        """
+        resp = self._http.get(f"/api/v1/tasks/{task_id}/files/{file_id}/download")
+        raise_for_status(resp)
+        return resp.content
 
     def list_tasks(self) -> List[dict]:
         """List available tasks (useful for debugging)."""
@@ -429,6 +517,99 @@ class NexusClient:
         if overrides:
             payload["overrides"] = overrides
         return self._post(f"/api/v1/templates/{template_id}/use", payload)
+
+    # --- Capability marketplace (V2) ---
+
+    def list_capability_specs(
+        self,
+        *,
+        category: Optional[str] = None,
+        input_mode: Optional[str] = None,
+        output_mode: Optional[str] = None,
+        max_price: Optional[int] = None,
+        tag: Optional[str] = None,
+        page: int = 1,
+        per_page: int = 50,
+    ) -> list[dict]:
+        """Browse the V2 capability marketplace.
+
+        All filters are optional and combine with AND semantics. Returns
+        a list of spec dicts; use the ``id`` field as ``capability_spec_id``
+        when (future) Phase C creates jobs against a specific provider.
+        """
+        params: dict = {"page": page, "per_page": per_page}
+        if category is not None:
+            params["category"] = category
+        if input_mode is not None:
+            params["input_mode"] = input_mode
+        if output_mode is not None:
+            params["output_mode"] = output_mode
+        if max_price is not None:
+            params["max_price"] = max_price
+        if tag is not None:
+            params["tag"] = tag
+        resp = self._http.get("/api/v2/capability-specs", params=params)
+        raise_for_status(resp)
+        return resp.json()["data"]
+
+    # --- Public Artifacts (Phase 1 skill marketplace) ---
+
+    def list_public_artifacts(
+        self,
+        *,
+        task_type: Optional[str] = None,
+        tag: Optional[str] = None,
+        min_price: Optional[int] = None,
+        max_price: Optional[int] = None,
+        page: int = 1,
+        per_page: int = 50,
+    ) -> List[dict]:
+        """Browse the public artifact marketplace.
+
+        Cached outputs other workers have published. You consume one
+        implicitly by calling ``create_task()`` with matching content — if the
+        platform finds a cache hit, the task is settled instantly at 70% of
+        the original price and you receive the cached result.
+        """
+        params: Dict[str, Any] = {"page": page, "per_page": per_page}
+        if task_type is not None:
+            params["task_type"] = task_type
+        if tag is not None:
+            params["tag"] = tag
+        if min_price is not None:
+            params["min_price"] = min_price
+        if max_price is not None:
+            params["max_price"] = max_price
+        resp = self._http.get("/api/v1/public-artifacts", params=params)
+        raise_for_status(resp)
+        return resp.json()
+
+    def get_public_artifact(self, artifact_id: str) -> dict:
+        """Metadata for one artifact. ``result_data`` is None unless you authored it."""
+        return self._get(f"/api/v1/public-artifacts/{artifact_id}")
+
+    def my_public_artifacts(
+        self, *, include_inactive: bool = True, page: int = 1, per_page: int = 50,
+    ) -> List[dict]:
+        """Artifacts you have published (active + retracted)."""
+        params = {
+            "include_inactive": str(bool(include_inactive)).lower(),
+            "page": page,
+            "per_page": per_page,
+        }
+        resp = self._http.get("/api/v1/public-artifacts/me/list", params=params)
+        raise_for_status(resp)
+        return resp.json()
+
+    def my_artifact_earnings(self) -> dict:
+        """Royalty summary — totals + top artifacts by cache-hit volume."""
+        return self._get("/api/v1/public-artifacts/me/earnings")
+
+    def retract_public_artifact(self, artifact_id: str) -> dict:
+        """Deactivate one of your artifacts — future cache lookups skip it."""
+        resp = self._http.post(f"/api/v1/public-artifacts/{artifact_id}/retract")
+        raise_for_status(resp)
+        return resp.json()
 
     # --- Promo ---
 
