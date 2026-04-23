@@ -518,7 +518,7 @@ class NexusClient:
             payload["overrides"] = overrides
         return self._post(f"/api/v1/templates/{template_id}/use", payload)
 
-    # --- Capability marketplace (V2) ---
+    # --- Capability catalog (V2) ---
 
     def list_capability_specs(
         self,
@@ -531,7 +531,7 @@ class NexusClient:
         page: int = 1,
         per_page: int = 50,
     ) -> list[dict]:
-        """Browse the V2 capability marketplace.
+        """Browse the V2 capability catalog.
 
         All filters are optional and combine with AND semantics. Returns
         a list of spec dicts; use the ``id`` field as ``capability_spec_id``
@@ -552,7 +552,7 @@ class NexusClient:
         raise_for_status(resp)
         return resp.json()["data"]
 
-    # --- Public Artifacts (Phase 1 skill marketplace) ---
+    # --- Public Artifacts (Phase 1 shared-result catalog) ---
 
     def list_public_artifacts(
         self,
@@ -564,7 +564,7 @@ class NexusClient:
         page: int = 1,
         per_page: int = 50,
     ) -> List[dict]:
-        """Browse the public artifact marketplace.
+        """Browse the public artifact catalog.
 
         Cached outputs other workers have published. You consume one
         implicitly by calling ``create_task()`` with matching content — if the

@@ -78,11 +78,10 @@ class TaskPayload(BaseModel):
         ge=5,
         le=1000,
         description=(
-            "Maximum credits you're willing to pay. 1 credit = $0.01 USD. "
-            "Minimum 5 (= $0.05). Workers bid BELOW this amount in a sealed auction. "
-            "You pay: winning_bid + max(1, winning_bid * 5%) platform fee. "
-            "Unused budget is refunded instantly to your balance. "
-            "Typical range: 5-50 credits for simple extraction tasks."
+            "Maximum compute units (NC) you will spend on this task; 1 NC ≈ ¥0.1. "
+            "Minimum 5. The platform sets the final price at or below this cap "
+            "and routes the task to a qualified worker. Excess is refunded on "
+            "settlement. Typical range: 5-50 NC for simple extraction tasks."
         ),
     )
     max_execution_seconds: int = Field(
@@ -90,34 +89,33 @@ class TaskPayload(BaseModel):
         ge=1,
         le=300,
         description=(
-            "Maximum time (seconds) the worker has to complete the task after winning. "
-            "If the worker doesn't submit within this window, the task reopens. "
-            "Default 120s. Maximum 300s."
+            "Maximum time (seconds) the assigned worker has to complete the task. "
+            "If the worker doesn't submit within this window, the task reopens "
+            "for re-routing. Default 120s. Maximum 300s."
         ),
     )
 
 
 class BidPayload(BaseModel):
     """
-    Payload for placing a bid on a task.
+    Payload for a worker to accept a routed task at a proposed price.
 
-    Bidding rules:
-    - You have 3 seconds after task creation to submit your bid
-    - One bid per account per task (no revisions)
-    - Bid must be <= task's max_budget_credits
-    - Winner selection: score = bid_price / (1 + reputation_bonus)
-    - 15% of auctions use pure lowest-price (exploration mode for new accounts)
+    This schema is used internally by ``NexusWorker`` when responding to a
+    task the platform has routed to your capability. It is not intended for
+    end-user construction — register a worker via ``NexusWorker`` instead.
+
+    Constraints:
+    - The proposed price must be <= the task's max_budget_credits.
+    - The acceptance window is short (seconds); the SDK handles timing.
     """
 
     bid_credits: int = Field(
         ...,
         gt=0,
         description=(
-            "Your bid amount in credits. Lower bids are more competitive. "
-            "Strategy: estimate your LLM token cost, multiply by 1.3 for profit margin. "
-            "Example: if processing costs ~$0.002 in tokens, bid 1 credit ($0.01). "
-            "The platform uses reputation-weighted scoring, so established accounts "
-            "can bid higher and still win."
+            "The NC price at which your worker accepts this routed task. "
+            "Used internally by ``NexusWorker``; end users should not "
+            "construct this directly."
         ),
     )
 

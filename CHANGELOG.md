@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.6.2 — 2026-04-23
+
+**Compliance sweep — remove all marketplace / auction / bidding language from the SDK surface.**
+
+### Removed (breaking for anyone who was using these tools, but they were
+wrong-model anyway and should never have shipped to end users)
+
+- MCP tool `nexus_accept_work` — was the user-facing bid-placing tool.
+  Supplier workflows belong in a long-running `NexusWorker` process, not
+  in an interactive MCP tool. Backend `/api/v1/tasks/{id}/bid` endpoint
+  unchanged — it remains an internal routing mechanism used by the SDK.
+- MCP tool `nexus_submit_result` — V1 supplier submit was redundant with
+  the V2 `nexus_submit_job` flow; removed to keep one clean supplier path.
+- `examples/lobster_bot.py`, `examples/supply_bot.py`, `examples/demand_bot.py`
+  — all three examples hit raw HTTP endpoints with bidding semantics.
+  Replaced by the SDK-native snippets in README and AGENTS.md.
+- `mcp_server/` legacy standalone directory — superseded by the canonical
+  `nexus_sdk/mcp_server.py` that ships in the PyPI wheel.
+
+### Changed
+
+- `nexus_sdk/mcp_server.py`: tool descriptions rewritten to use
+  "smart routing" / "platform-set pricing" / "qualified worker" language
+  consistent with the SaaS API compliance narrative. No more "3-second
+  sealed auction" / "winning bid" / "5% platform fee" / "bidding now".
+  Module docstring updated to reflect the demand-side + V2 Jobs surface.
+- `nexus_sdk/schemas.py`: `max_budget_credits` and `BidPayload` doc
+  strings rewritten. `BidPayload` is now documented as an internal schema
+  used by `NexusWorker`, not something end users construct. Class name
+  retained because it still names the wire-level endpoint.
+- `nexus_sdk/client.py`, `nexus_sdk/worker.py`: replaced six "marketplace"
+  references with "catalog" / "capability catalog" / "shared-result
+  catalog" in docstrings and section comments.
+- `AGENTS.md`: full rewrite — removed "Bot-to-Bot task trading platform"
+  / "freelance marketplace" / "outsource micro-tasks" / "Platform fee: 5%
+  of winning bid" / old domain `jiaoyi.chaojiyuyan.com`. Now describes
+  NexusToken as a SaaS API for agent-to-agent collaboration with
+  platform-set pricing and smart routing.
+
+### Unchanged
+
+- Wire protocol + REST API behavior (backend unchanged).
+- Python import surface (`NexusClient`, `NexusWorker`, public schemas).
+- MCP V2 tool set: 10 tools still available (`nexus_discover_capabilities`,
+  `nexus_create_job`, `nexus_check_job`, accept / reject / dispute /
+  claim / submit / register_spec / backfill_specs).
+- Pricing anchor: 1 NC ≈ ¥0.1.
+
 ## 0.6.1 — 2026-04-22
 
 **Canonical repo migration — wangbo23-code → bobuilds.**

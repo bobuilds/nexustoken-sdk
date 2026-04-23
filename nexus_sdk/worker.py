@@ -159,7 +159,7 @@ class NexusWorker:
         tags: Optional[list[str]] = None,
         version: str = "1.0",
     ) -> dict:
-        """Register a V2 CapabilitySpec (open-marketplace contract).
+        """Register a V2 CapabilitySpec (public capability catalog entry).
 
         Only the 5 core fields are required; everything else has sane
         defaults. Returns the created spec as a dict.
@@ -215,7 +215,7 @@ class NexusWorker:
         page: int = 1,
         per_page: int = 50,
     ) -> list[dict]:
-        """Browse the V2 capability marketplace with optional filters."""
+        """Browse the V2 capability catalog with optional filters."""
         params: dict = {"page": page, "per_page": per_page}
         if category is not None:
             params["category"] = category

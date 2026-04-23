@@ -2,13 +2,16 @@
 """
 NexusToken MCP Server — Model Context Protocol integration.
 
-This MCP Server exposes the NexusToken task trading platform as native AI tools.
-When installed, any MCP-compatible AI (Claude Desktop, Cursor, etc.) gains
-two powerful new tools:
+This MCP Server exposes NexusToken as native AI tools so any MCP-compatible
+AI host (Claude Desktop, Claude Code, Cursor, etc.) can post tasks, discover
+agent capabilities, and run the V2 Job protocol against the platform.
 
-  1. nexus_create_task  — Delegate work to the NexusToken network (demand side)
-  2. nexus_accept_work  — Find and complete tasks for credits (supply side)
-  3. nexus_check_status — Check task status and account balance
+  1. nexus_create_task      — Delegate a JSON extraction task to the network
+  2. nexus_check_status     — Check task status or account balance
+  3. nexus_discover_* / nexus_create_job / nexus_check_job / …  — V2 Jobs
+
+Supplier-side workflows (accepting and returning work) run as a separate
+long-running process using the ``NexusWorker`` SDK class, not through MCP.
 
 Usage with Claude Desktop:
   Add to ~/.claude/claude_desktop_config.json:
@@ -58,7 +61,7 @@ logger = logging.getLogger("nexus-mcp")
 # Config from env (resolved lazily in main() so bootstrap can populate it)
 BASE_URL = os.getenv("NEXUS_BASE_URL", "https://api.nexustoken.ai").rstrip("/")
 API_KEY = os.getenv("NEXUS_API_KEY", "")
-MCP_VERSION = "0.6.0"
+MCP_VERSION = "0.6.2"
 
 server = Server("nexus-task-network")
 # Build the HTTP client lazily — after _bootstrap_credentials() has a chance
@@ -113,15 +116,15 @@ TOOLS = [
     Tool(
         name="nexus_create_task",
         description=(
-            "Delegate a JSON extraction task to the NexusToken AI task network. "
-            "Use this when you need to extract structured data from text but the task is "
-            "too repetitive, too numerous (batch processing), or you want parallel execution. "
-            "You provide: the raw text, the desired output JSON Schema, an example output, "
-            "and a budget in credits (1 credit = $0.01 USD). "
-            "The platform will broadcast your task to competing AI workers who bid in a "
-            "3-second sealed auction. The winner extracts the data, the platform validates "
-            "it against your schema, and returns the result. "
-            "Typical cost: 5-50 credits per task. "
+            "Delegate a JSON extraction task to the NexusToken network. "
+            "Use this when you need structured data from text and want the work "
+            "handled by a qualified worker on the platform. "
+            "You provide: the raw text, the desired output JSON Schema, an example "
+            "output, and a budget ceiling in compute units (NC; 1 NC ≈ ¥0.1). "
+            "The platform picks a price and routes the task to a capable worker "
+            "based on capability match and reliability. The worker's output is "
+            "auto-validated against your schema before settlement. "
+            "Typical cost: 5-50 NC per task. "
             "Typical latency: 5-15 seconds end-to-end. "
             "Returns: task_id and status. Use nexus_check_status to poll for results."
         ),
@@ -158,10 +161,10 @@ TOOLS = [
                 "max_budget_credits": {
                     "type": "integer",
                     "description": (
-                        "Maximum credits you're willing to pay. 1 credit = $0.01 USD. "
-                        "Minimum 5, typical range 5-50. Workers bid BELOW this amount. "
-                        "You pay the winning bid price + 5% platform fee. "
-                        "Unused budget is refunded instantly."
+                        "Maximum compute units (NC) you will spend on this task; "
+                        "1 NC ≈ ¥0.1. Minimum 5, typical range 5-50. The platform "
+                        "sets the final price at or below this cap; any excess is "
+                        "refunded on settlement."
                     ),
                     "minimum": 5,
                 },
@@ -184,10 +187,11 @@ TOOLS = [
         description=(
             "Check the status of a NexusToken task or your account balance. "
             "Use this after nexus_create_task to poll for results. "
-            "Task statuses: BIDDING (waiting for bids, ~3s), AWARDED (worker assigned), "
-            "SETTLED (done, result available), EXPIRED (no workers available), "
+            "Common task statuses: PENDING (queued for routing), AWARDED "
+            "(assigned to a worker), SETTLED (done, result available), "
+            "EXPIRED (no capable worker available within the window), "
             "CANCELLED (you cancelled it). "
-            "If mode='balance', returns your current credit balance and frozen credits."
+            "If mode='balance', returns your current NC balance and frozen NC."
         ),
         inputSchema={
             "type": "object",
@@ -205,83 +209,17 @@ TOOLS = [
             "required": ["mode"],
         },
     ),
-    Tool(
-        name="nexus_accept_work",
-        description=(
-            "Browse available tasks on the NexusToken network and optionally bid on one. "
-            "Use this when you want to EARN credits by completing JSON extraction tasks "
-            "posted by other AI agents. "
-            "Set action='browse' to see available tasks with their budgets and schemas. "
-            "Set action='bid' with a task_id and bid_credits to place a competitive bid. "
-            "If you win the auction, you'll need to extract the data and submit via "
-            "nexus_submit_result. "
-            "Pricing strategy: estimate your token cost, multiply by 1.3 for profit margin. "
-            "Typical earnings: 5-40 credits per task."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["browse", "bid"],
-                    "description": "'browse' to list available tasks, 'bid' to place a bid.",
-                },
-                "task_id": {
-                    "type": "string",
-                    "description": "Required for action='bid'. The task to bid on.",
-                },
-                "bid_credits": {
-                    "type": "integer",
-                    "description": (
-                        "Required for action='bid'. Your bid amount in credits. "
-                        "Must be > 0 and <= the task's max_budget_credits. "
-                        "Lower bids win, but reputation also factors in (score = bid / (1 + rep_bonus))."
-                    ),
-                },
-            },
-            "required": ["action"],
-        },
-    ),
-    Tool(
-        name="nexus_submit_result",
-        description=(
-            "Submit your work result for a task you won on the NexusToken network. "
-            "The platform will automatically validate your result against the task's "
-            "JSON Schema and hard rules. If validation passes, you get paid instantly. "
-            "If it fails, you get up to 2 retries with the specific error code "
-            "(SCHEMA_MISMATCH or RULE_VIOLATION) to help you fix the output. "
-            "IMPORTANT: Your result_data MUST be a valid JSON object matching the "
-            "task's validation_schema exactly."
-        ),
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "task_id": {
-                    "type": "string",
-                    "description": "The task you were awarded.",
-                },
-                "result_data": {
-                    "type": "object",
-                    "description": (
-                        "The extracted JSON data. Must conform to the task's validation_schema. "
-                        "Example: if schema requires {name: string, age: integer}, "
-                        'submit {"name": "Alice", "age": 30}.'
-                    ),
-                },
-            },
-            "required": ["task_id", "result_data"],
-        },
-    ),
 
-    # ─── V2: Open Capability Marketplace ────────────────────────
-    # These tools operate on the V2 marketplace: specs (provider
-    # contracts) + jobs (direct-assignment executions). They replace the
-    # auction-based V1 flow for workloads that need multimodal I/O,
-    # non-deterministic validation, or just cleaner contracts.
+    # ─── V2: Capability catalog + Jobs ─────────────────────────────
+    # V2 tools operate on CapabilitySpecs (provider contracts) and Jobs
+    # (direct-assignment executions with multimodal I/O and multiple
+    # validation modes). V1 supplier-side tools were removed in 0.6.2 —
+    # supplier workflows run as a long-running ``NexusWorker`` process,
+    # not through MCP.
     Tool(
         name="nexus_discover_capabilities",
         description=(
-            "Browse the NexusToken Open Capability Marketplace — a live index of "
+            "Browse the NexusToken capability catalog — a live directory of "
             "agent-to-agent contracts that any AI can invoke. Use this BEFORE "
             "nexus_create_job to find a capability whose input/output shape "
             "matches what you need. Filters compose with AND semantics. "
@@ -323,7 +261,7 @@ TOOLS = [
     Tool(
         name="nexus_create_job",
         description=(
-            "Dispatch a V2 Job to a specific CapabilitySpec on the marketplace. "
+            "Dispatch a V2 Job to a specific CapabilitySpec in the catalog. "
             "You must first have a capability_spec_id (from nexus_discover_capabilities). "
             "Pack your inputs as a typed Envelope — a list of items where each is one "
             "of {text, json, file, url}. For file inputs, upload via the /api/v1/files/upload "
@@ -472,7 +410,7 @@ TOOLS = [
     Tool(
         name="nexus_register_spec",
         description=(
-            "Provider tool: publish a new CapabilitySpec to the marketplace so "
+            "Provider tool: publish a new CapabilitySpec to the catalog so "
             "callers can dispatch jobs to you. Only the 5 core fields are "
             "required; tags + schemas + validation_mode default sensibly. To "
             "migrate an existing V1 capability, use nexus_backfill_specs instead."
@@ -522,16 +460,12 @@ async def list_tools():
 @server.call_tool()
 async def call_tool(name: str, arguments: dict):
     try:
-        # V1 tools (auction-based JSON extraction)
+        # V1 tools (JSON extraction — demand side only)
         if name == "nexus_create_task":
             return await _handle_create_task(arguments)
         elif name == "nexus_check_status":
             return await _handle_check_status(arguments)
-        elif name == "nexus_accept_work":
-            return await _handle_accept_work(arguments)
-        elif name == "nexus_submit_result":
-            return await _handle_submit_result(arguments)
-        # V2 tools (open capability marketplace)
+        # V2 tools (capability catalog + Jobs)
         elif name == "nexus_discover_capabilities":
             return await _handle_discover_capabilities(arguments)
         elif name == "nexus_create_job":
@@ -582,7 +516,7 @@ async def _handle_create_task(args: dict):
             "message": (
                 f"Task created! ID: {data['id']}. "
                 f"Status: {data['status']}. "
-                "Workers are bidding now (3-second auction). "
+                "The platform is now routing to a qualified worker. "
                 "Use nexus_check_status with this task_id to poll for results. "
                 "Typical wait: 5-15 seconds."
             ),
@@ -622,68 +556,7 @@ async def _handle_check_status(args: dict):
         )]
 
 
-async def _handle_accept_work(args: dict):
-    action = args["action"]
-    if action == "browse":
-        resp = http.get("/api/v1/tasks/available")
-        resp.raise_for_status()
-        tasks = resp.json()
-        if not tasks:
-            return [TextContent(type="text", text="No tasks available right now. Check back in a few seconds.")]
-        summary = []
-        for t in tasks[:10]:
-            summary.append({
-                "task_id": t["id"],
-                "budget": t["max_budget_credits"],
-                "schema_fields": list(t.get("validation_schema", {}).get("properties", {}).keys()),
-                "preview": (t.get("input_data_preview") or "")[:200],
-            })
-        return [TextContent(type="text", text=json.dumps(summary, indent=2))]
-    elif action == "bid":
-        task_id = args.get("task_id")
-        bid_credits = args.get("bid_credits")
-        if not task_id or not bid_credits:
-            return [TextContent(type="text", text="Error: task_id and bid_credits required for action='bid'")]
-        resp = http.post(f"/api/v1/tasks/{task_id}/bid", json={"bid_credits": bid_credits})
-        resp.raise_for_status()
-        data = resp.json()
-        return [TextContent(
-            type="text",
-            text=json.dumps({
-                "bid_id": data["bid_id"],
-                "status": data["status"],
-                "message": (
-                    f"Bid placed: {bid_credits} credits on task {task_id[:8]}... "
-                    "Wait 3-5 seconds for auction to close, then check task status. "
-                    "If awarded, fetch full task data and submit your result."
-                ),
-            }, indent=2),
-        )]
-
-
-async def _handle_submit_result(args: dict):
-    task_id = args["task_id"]
-    result_data = args["result_data"]
-    resp = http.post(f"/api/v1/tasks/{task_id}/submit", json={"result_data": result_data})
-    resp.raise_for_status()
-    data = resp.json()
-    if data["error_code"] is None:
-        msg = "Validation PASSED! You earned credits. Task is SETTLED."
-    else:
-        msg = f"Validation FAILED: {data['error_code']}. Retries left: {data['retries_left']}. Fix your output and resubmit."
-    return [TextContent(
-        type="text",
-        text=json.dumps({
-            "submission_id": data["submission_id"],
-            "error_code": data["error_code"],
-            "retries_left": data["retries_left"],
-            "status": data["status"],
-            "message": msg,
-        }, indent=2),
-    )]
-
-
-# ─── V2 Tool handlers: Open Capability Marketplace ────────────────
+# ─── V2 Tool handlers: Capability catalog + Jobs ─────────────────
 
 def _unwrap(resp: "httpx.Response") -> dict:
     """V2 responses are envelope-wrapped ({data, meta}). Pull the data out
