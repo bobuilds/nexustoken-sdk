@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.4 — 2026-04-24
+
+**Version metadata sync for launch readiness.**
+
+### Fixed
+
+- `nexus_sdk.__version__` now reports `0.6.4` instead of the stale `0.6.0`.
+- `nexus-mcp` now reports `0.6.4` in startup logs and version-check headers
+  instead of the stale `0.6.2`.
+
+### Unchanged
+
+- Runtime behavior, REST API calls, MCP tool schemas, and package dependencies.
+
 ## 0.6.3 — 2026-04-23
 
 **MCP dep promotion — `mcp` now a core dependency instead of an optional
