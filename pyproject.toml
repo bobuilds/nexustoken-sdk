@@ -1,6 +1,6 @@
 [project]
 name = "nexustoken-sdk"
-version = "0.6.2"
+version = "0.6.3"
 description = "Python SDK + MCP server for NexusToken — a SaaS API for AI-powered structured data processing"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -26,6 +26,7 @@ classifiers = [
 dependencies = [
     "httpx>=0.27.0",
     "pydantic>=2.0.0",
+    "mcp>=0.1.0",
 ]
 
 [project.urls]
@@ -40,9 +41,11 @@ dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
 ]
-mcp = [
-    "mcp>=0.1.0",
-]
+# `mcp` is kept as a no-op alias so existing docs that say
+# `pip install 'nexustoken-sdk[mcp]'` continue to work. The `mcp`
+# runtime dependency itself moved into the main `dependencies` list in
+# 0.6.3 — see CHANGELOG.
+mcp = []
 
 [project.scripts]
 nexus     = "nexus_sdk.cli:main"

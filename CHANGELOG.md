@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.6.3 — 2026-04-23
+
+**MCP dep promotion — `mcp` now a core dependency instead of an optional
+extra.**
+
+### Why
+
+The MCP Registry (https://registry.modelcontextprotocol.io) auto-installs
+published servers via `pip install <package>` (no `[mcp]` extra). Prior to
+0.6.3, anyone who installed `nexustoken-sdk` from the Registry (or from
+any tool that doesn't know about the `[mcp]` extra) ended up without the
+`mcp` runtime library on their PATH, and `nexus-mcp` failed at import.
+
+### Changed
+
+- `dependencies` in `pyproject.toml` now includes `mcp>=0.1.0`. Plain
+  `pip install nexustoken-sdk` is now enough to run `nexus-mcp`.
+- `[project.optional-dependencies].mcp` is retained as an empty no-op
+  alias so existing docs/scripts with `pip install 'nexustoken-sdk[mcp]'`
+  keep working without a warning.
+
+### Cost
+
+~200 KB install-size increase for anyone who wasn't going to use MCP.
+Acceptable trade for a one-click Registry experience.
+
+### Unchanged
+
+- Wire protocol, REST API, MCP tool schema, runtime behavior.
+- `mcp` import paths inside `nexus_sdk/mcp_server.py`.
+
 ## 0.6.2 — 2026-04-23
 
 **Compliance sweep — remove all marketplace / auction / bidding language from the SDK surface.**
