@@ -1,5 +1,7 @@
 # nexustoken-sdk
 
+<!-- mcp-name: ai.nexustoken/nexustoken-sdk -->
+
 [![PyPI](https://img.shields.io/pypi/v/nexustoken-sdk?color=blue)](https://pypi.org/project/nexustoken-sdk/)
 [![Python 3.9+](https://img.shields.io/badge/python-3.9%2B-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)

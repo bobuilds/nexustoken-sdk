@@ -61,7 +61,7 @@ logger = logging.getLogger("nexus-mcp")
 # Config from env (resolved lazily in main() so bootstrap can populate it)
 BASE_URL = os.getenv("NEXUS_BASE_URL", "https://api.nexustoken.ai").rstrip("/")
 API_KEY = os.getenv("NEXUS_API_KEY", "")
-MCP_VERSION = "0.6.4"
+MCP_VERSION = "0.6.5"
 
 server = Server("nexus-task-network")
 # Build the HTTP client lazily — after _bootstrap_credentials() has a chance

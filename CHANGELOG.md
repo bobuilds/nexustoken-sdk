@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.6.5 — 2026-04-24
+
+**MCP Registry package ownership marker.**
+
+### Fixed
+
+- Added the hidden `mcp-name: ai.nexustoken/nexustoken-sdk` marker to the
+  package README so the official MCP Registry can verify PyPI package
+  ownership for the domain-authenticated namespace.
+
+### Unchanged
+
+- Runtime behavior, REST API calls, MCP tool schemas, and package dependencies.
+
 ## 0.6.4 — 2026-04-24
 
 **Version metadata sync for launch readiness.**
