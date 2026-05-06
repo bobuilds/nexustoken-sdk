@@ -3,18 +3,19 @@
 Nexus CLI — Use the Nexus task network without writing any code.
 
 Usage:
-    nexus register you@email.com          # Register and get API key
-    nexus balance                          # Check credit balance
-    nexus topup 100                        # Add credits
-    nexus post "John is 30, lives in NYC"  # Post a task
-    nexus worker                           # Start earning credits as a worker
+    # 1. Get an API key (recommended): sign up at https://nexustoken.ai/signup
+    #    then paste the key with:
+    nexus configure                        # Save API key to ~/.nexus/config.json
+    #    (or export NEXUS_API_KEY=...)
+    #
+    # 2. Already have an invite code? You can register directly from the CLI:
+    nexus register you@email.com --invite-code CODE --accept-terms
+
+    nexus balance                          # Check NC service-credit balance
+    nexus post "John is 30, lives in NYC"  # Post a task (uses granted Phase 1a NC)
+    nexus worker                           # Run a worker to earn NC service credits
     nexus status <task_id>                 # Check task status
     nexus reputation                       # Check your reputation
-
-First time? Run:
-    nexus register your@email.com
-    nexus topup 100
-    nexus post "Extract name and age: John is 30 years old"
 """
 
 import argparse
@@ -64,8 +65,10 @@ def get_api_key() -> str:
     key = cfg.get("api_key")
     if not key:
         print("Error: No API key found.")
-        print("Run: nexus register <email>")
-        print("Or set NEXUS_API_KEY environment variable")
+        print("Sign up at https://nexustoken.ai/signup, then run one of:")
+        print("  nexus configure                             # paste API key")
+        print("  export NEXUS_API_KEY=...                    # or set env var")
+        print("  nexus register you@email.com --invite-code CODE --accept-terms")
         sys.exit(1)
     return key
 
@@ -76,20 +79,64 @@ def get_base_url() -> str:
 
 # ── Commands ──────────────────────────────────────────────────────
 
+def _print_signup_guidance(email: str) -> None:
+    """Print the canonical onboarding path when CLI register can't proceed."""
+    print("Direct CLI registration requires an invite code + explicit terms acceptance.")
+    print()
+    print("Recommended: sign up in your browser (GitHub / Google / email + invite code)")
+    print("  1. Open https://nexustoken.ai/signup")
+    print("  2. Create your API key in the dashboard")
+    print("  3. Run: nexus configure    (or: export NEXUS_API_KEY=...)")
+    print()
+    print("Already have an invite code? Run:")
+    print(
+        f"  nexus register {email} --invite-code YOUR_CODE --accept-terms"
+    )
+    print()
+    print("By passing --accept-terms you confirm you have read and agree to")
+    print("  Terms of Service: https://nexustoken.ai/terms")
+    print("  Privacy Policy:   https://nexustoken.ai/privacy")
+
+
 def cmd_register(args):
-    """Register a new account."""
+    """Register a new account via the CLI (invite-code path).
+
+    Requires `--invite-code` and `--accept-terms`. Without them, prints
+    guidance pointing at the browser signup flow — this matches backend
+    policy (INVITE_CODE_REQUIRED_FOR_EMAIL + REQUIRE_TERMS_ACCEPTANCE in
+    Phase 1a) so we never issue a request that is guaranteed to 400.
+    """
     import httpx
+
+    if not args.invite_code or not args.accept_terms:
+        _print_signup_guidance(args.email)
+        sys.exit(0 if not args.invite_code and not args.accept_terms else 1)
 
     base_url = args.base_url or get_base_url()
     print(f"Registering {args.email} on {base_url}...")
 
     resp = httpx.post(
         f"{base_url}/api/v1/auth/register",
-        json={"email": args.email, "source": "cli"},
+        json={
+            "email": args.email,
+            "source": "cli",
+            "invite_code": args.invite_code,
+            "accepted_terms": True,
+        },
     )
 
     if resp.status_code == 409:
         print(f"Error: {args.email} is already registered.")
+        sys.exit(1)
+    if resp.status_code == 400:
+        detail = ""
+        try:
+            detail = resp.json().get("detail", "")
+        except Exception:
+            detail = resp.text
+        print(f"Registration rejected: {detail}")
+        print()
+        _print_signup_guidance(args.email)
         sys.exit(1)
     resp.raise_for_status()
 
@@ -105,16 +152,37 @@ def cmd_register(args):
         "email": args.email,
     })
 
-    print(f"\nRegistered successfully!")
+    print("\nRegistered successfully!")
     print(f"Account ID: {account_id}")
     # Show only first/last 4 chars of the API key to prevent credential leakage
     # via terminal history, screen recordings, or logs.
     masked = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "****"
     print(f"API Key: {masked} (saved to {CONFIG_FILE})")
-    print(f"\nNext steps:")
-    print(f"  nexus topup 100       # Add credits")
-    print(f"  nexus post \"text\"      # Post a task")
-    print(f"  nexus worker          # Start earning credits")
+    print("\nNext steps:")
+    print("  nexus balance         # Check NC service-credit balance (Phase 1a grants you 500 NC on signup)")
+    print("  nexus post \"text\"     # Post a task")
+    print("  nexus worker          # Run a worker to earn NC service credits")
+
+
+def cmd_configure(args):
+    """Save an existing API key (from the web dashboard) to ~/.nexus/config.json."""
+    base_url = args.base_url or get_base_url()
+    api_key = args.api_key or os.environ.get("NEXUS_API_KEY")
+    if not api_key:
+        try:
+            api_key = input("Paste your API key: ").strip()
+        except EOFError:
+            api_key = ""
+    if not api_key:
+        print("Error: no API key provided.")
+        print("Get one at https://nexustoken.ai/signup → dashboard → API keys.")
+        sys.exit(1)
+
+    cfg = load_config()
+    cfg.update({"api_key": api_key, "base_url": base_url})
+    save_config(cfg)
+    masked = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "****"
+    print(f"Saved API key {masked} to {CONFIG_FILE}")
 
 
 def cmd_balance(args):
@@ -319,16 +387,41 @@ def main():
     sub = parser.add_subparsers(dest="command", help="Available commands")
 
     # register
-    p = sub.add_parser("register", help="Register a new account")
+    p = sub.add_parser(
+        "register",
+        help="Register a new account (requires --invite-code + --accept-terms)",
+    )
     p.add_argument("email", help="Your email address")
+    p.add_argument(
+        "--invite-code",
+        help="Invite code from an existing NexusToken user (required in Phase 1a)",
+    )
+    p.add_argument(
+        "--accept-terms",
+        action="store_true",
+        help=(
+            "Required. By passing this flag you confirm you have read and accepted "
+            "the Terms of Service (https://nexustoken.ai/terms) and Privacy Policy "
+            "(https://nexustoken.ai/privacy)."
+        ),
+    )
     p.set_defaults(func=cmd_register)
+
+    # configure
+    p = sub.add_parser(
+        "configure",
+        help="Save an existing API key (from the web dashboard) to ~/.nexus/config.json",
+    )
+    p.add_argument("--api-key", help="API key (omit to paste interactively)")
+    p.set_defaults(func=cmd_configure)
 
     # balance
     p = sub.add_parser("balance", help="Check credit balance")
     p.set_defaults(func=cmd_balance)
 
-    # topup
-    p = sub.add_parser("topup", help="Add credits to your account")
+    # topup (Phase 1a: subcommand kept for backward compatibility; not exposed in
+    # public help/quickstart since credit purchase is closed during Phase 1a)
+    p = sub.add_parser("topup", help=argparse.SUPPRESS)
     p.add_argument("amount", type=int, help="Credits to add")
     p.set_defaults(func=cmd_topup)
 
@@ -366,10 +459,14 @@ def main():
     if not args.command:
         parser.print_help()
         print("\nQuick start:")
-        print("  nexus register you@email.com")
-        print("  nexus topup 100")
-        print("  nexus post \"John is 30 and lives in NYC\" --fields name,age,city")
-        print("  nexus worker")
+        print("  1. Sign up in your browser: https://nexustoken.ai/signup")
+        print("  2. nexus configure                         # paste your API key")
+        print("  3. nexus balance                           # confirm 500 NC signup grant landed")
+        print("  4. nexus post \"John is 30 and lives in NYC\" --fields name,age,city")
+        print("  5. nexus worker                            # (optional) earn NC service credits")
+        print()
+        print("Have an invite code? You can also do step 1 in one shot:")
+        print("  nexus register you@email.com --invite-code CODE --accept-terms")
         sys.exit(0)
 
     args.func(args)

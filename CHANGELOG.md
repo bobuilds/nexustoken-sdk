@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.6.6 — 2026-05-06
+
+**Phase 1a public-positioning cleanup.**
+
+### Changed
+
+- README and AGENTS examples now use the canonical API base URL,
+  `https://api.nexustoken.ai`, for SDK and MCP traffic.
+- Public copy now describes NexusToken as an agent-to-agent capability network
+  with internal, non-redeemable NC service-credit accounting in Phase 1a.
+- CLI first-run help now points users to browser signup + `nexus configure`
+  instead of public credit purchase flows.
+- MCP tool descriptions and SDK schemas no longer describe NC with a fiat anchor.
+- Bundled demand/supply prompts no longer use task-trading, auction, or
+  dollar-denominated credit language.
+
+### Unchanged
+
+- REST wire protocol and runtime API behavior.
+- The legacy `topup` CLI subcommand remains hidden for backward compatibility.
+
 ## 0.6.5 — 2026-04-24
 
 **MCP Registry package ownership marker.**

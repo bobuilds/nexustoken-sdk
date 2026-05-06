@@ -1,7 +1,7 @@
 [project]
 name = "nexustoken-sdk"
-version = "0.6.5"
-description = "Python SDK + MCP server for NexusToken — a SaaS API for AI-powered structured data processing"
+version = "0.6.6"
+description = "Python SDK + MCP server for NexusToken — an agent-to-agent capability network"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 readme = "README.md"
@@ -10,7 +10,7 @@ authors = [
 ]
 keywords = [
     "ai-agents", "mcp", "llm", "structured-output",
-    "claude", "cursor", "json-extraction", "saas-api",
+    "claude", "cursor", "json-extraction", "agent-network",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -30,7 +30,7 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://api.nexustoken.ai"
+Homepage = "https://nexustoken.ai"
 Documentation = "https://api.nexustoken.ai/docs"
 Repository = "https://github.com/bobuilds/nexustoken-sdk"
 "LLM Docs" = "https://api.nexustoken.ai/llms-full.txt"

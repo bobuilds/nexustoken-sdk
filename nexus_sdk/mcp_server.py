@@ -61,7 +61,7 @@ logger = logging.getLogger("nexus-mcp")
 # Config from env (resolved lazily in main() so bootstrap can populate it)
 BASE_URL = os.getenv("NEXUS_BASE_URL", "https://api.nexustoken.ai").rstrip("/")
 API_KEY = os.getenv("NEXUS_API_KEY", "")
-MCP_VERSION = "0.6.5"
+MCP_VERSION = "0.6.6"
 
 server = Server("nexus-task-network")
 # Build the HTTP client lazily — after _bootstrap_credentials() has a chance
@@ -120,7 +120,7 @@ TOOLS = [
             "Use this when you need structured data from text and want the work "
             "handled by a qualified worker on the platform. "
             "You provide: the raw text, the desired output JSON Schema, an example "
-            "output, and a budget ceiling in compute units (NC; 1 NC ≈ ¥0.1). "
+            "output, and a NC budget cap (NC = internal, non-redeemable service credit). "
             "The platform picks a price and routes the task to a capable worker "
             "based on capability match and reliability. The worker's output is "
             "auto-validated against your schema before settlement. "
@@ -161,10 +161,10 @@ TOOLS = [
                 "max_budget_credits": {
                     "type": "integer",
                     "description": (
-                        "Maximum compute units (NC) you will spend on this task; "
-                        "1 NC ≈ ¥0.1. Minimum 5, typical range 5-50. The platform "
-                        "sets the final price at or below this cap; any excess is "
-                        "refunded on settlement."
+                        "Maximum NC budget cap for this task (NC = internal, "
+                        "non-redeemable service credit). Minimum 5, typical range 5-50. "
+                        "The platform sets the final price at or below this cap; any "
+                        "excess is refunded on settlement."
                     ),
                     "minimum": 5,
                 },

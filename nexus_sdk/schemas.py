@@ -78,10 +78,10 @@ class TaskPayload(BaseModel):
         ge=5,
         le=1000,
         description=(
-            "Maximum compute units (NC) you will spend on this task; 1 NC ≈ ¥0.1. "
-            "Minimum 5. The platform sets the final price at or below this cap "
-            "and routes the task to a qualified worker. Excess is refunded on "
-            "settlement. Typical range: 5-50 NC for simple extraction tasks."
+            "Maximum NC budget cap for this task (NC = internal, non-redeemable "
+            "service credit). Minimum 5. The platform sets the final price at or "
+            "below this cap and routes the task to a qualified worker. Excess is "
+            "refunded on settlement. Typical range: 5-50 NC for simple extraction tasks."
         ),
     )
     max_execution_seconds: int = Field(
